@@ -1,4 +1,4 @@
-# XML2 Roster Hack - Beta v0.01
+# XML2 32 Roster Hack - Beta v0.01
 
 Raises the hero limit of the 2005 PC version of **X-Men Legends II** from 21 playable heroes to as many as 31 playable heroes plus the default entry (32 hero slots).
 
