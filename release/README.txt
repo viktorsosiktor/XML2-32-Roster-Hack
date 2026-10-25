@@ -1,4 +1,4 @@
-XML2 ROSTER HACK - BETA v0.01
+XML2 32 ROSTER HACK - BETA v0.01
 =============================
 (X-Men Legends II: up to 32 heroes)
 
