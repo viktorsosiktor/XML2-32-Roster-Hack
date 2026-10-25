@@ -1,4 +1,4 @@
-# XML2 Roster Hack - Beta v0.01
+# XML2 32 Roster Hack - Beta v0.01
 
 First beta release.
 
