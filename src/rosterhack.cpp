@@ -1,41 +1,51 @@
-// XML2 Roster Hack - Beta v0.01
+// XML2 32 Roster Hack Beta v0.02
 //
 // Raises the hero limit of the original PC X-Men Legends II (2005 retail XMen2.exe)
-// from 21 playable heroes to as many as 31 playable heroes plus the default entry
-// (32 hero slots). It is an ASI plugin (for Ultimate ASI Loader): it patches the
+// from 21 playable heroes to as many as 32 playable heroes plus the default entry
+// (33 hero slots). It is an ASI plugin (for Ultimate ASI Loader): it patches the
 // running game in memory only. XMen2.exe on disk is never modified. To undo
 // everything, remove rosterhack.asi.
 //
 // What it changes:
 //
 //  1. Hero record pool. The pool (0x44 bytes per hero) is moved into memory this plugin
-//     owns, laid out for Capacity slots (22..32), and every number in the pool's code
-//     that depended on the old 22-slot layout is rewritten.
+//     owns, laid out for 33 slots (the default entry plus up to 32 heroes), and every number in
+//     the pool's code that depended on the old 22-slot layout is rewritten.
 //  2. Playable index lookup. After herostat.xmlb is loaded, the game builds a table
 //     (character ID -> playable index) in a loop that runs 21 times (loop at 0x44BB00).
-//     Playable=auto (the default) makes the loop follow the real number of herostat
-//     entries, so nothing has to be changed when heroes are added. Playable=N keeps
-//     the old fixed count (N must not be higher than the real number of playable
-//     heroes, and the default entry occupies one slot, so N is limited to Capacity-1).
+//     The loop now follows the real number of herostat entries, so nothing has to be
+//     changed when heroes are added.
 //  3. Roster screen list. The roster screen builds a sorted list of hero names in a
 //     fixed 21-entry table (20 bytes each) at 0x8B1010 and silently drops the 22nd
-//     hero. The list is moved to plugin memory (Capacity entries), the function that
+//     hero. The list is moved to plugin memory (33 entries), the function that
 //     fills it (0x5DB590) is replaced by an equivalent without the 21 limit, and the
 //     loops that read the list are pointed at the new table.
-//  4. Portrait fix. Portraits for the 22nd and later heroes are no longer refused.
-//  5. Character manager. The character pool (31 slots) is enlarged (CharPool, up to 64)
-//     and so is the name table (297 entries; NameTable, up to 480). The manager object
+//  4. Portrait fix. Lets additional character heads (the 22nd hero and later) show their portraits
+//     without having to update the character heads package files.
+//  5. Character manager. The character pool (31 slots) is enlarged (CharPool=on: 64 slots)
+//     and so is the name table (297 entries; NameTable=on: 480 entries). The manager object
 //     grows and every offset, mask, shift and name-number limit that depends on those
 //     sizes is rewritten, including the name-indexed tables outside the manager.
-//     This keeps cutscene characters and the "<Name>Simple" NPC versions of heroes
-//     showing their own models instead of the default model.
-//  6. Diagnostics. The log records pool and name-table high-water marks and writes
-//     "NAME TABLE FULL" when a name cannot be registered.
+//     This keeps NPC models (cutscene characters and the "<Name>Simple" NPC versions of
+//     heroes) from not showing because of the increased roster size.
+//  6. Team bonus limits ([Limits] TeamBonus). The game keeps 17 team
+//     bonuses of up to 6 heroes and silently drops the rest. The team bonus object is rebuilt
+//     larger (TeamBonus=on: up to 100 teams of 23 heroes) and the code that depends on its layout is patched.
+//  7. Cel-shading option ([Visual] CelShading=on|off). "off" hides the separate outline scene
+//     nodes so models draw without outlines. Nodes are found by name: "<name>_outline", the
+//     misspellings "_outine" and "_outlline", "outline", "804", "3902", "5002", and the
+//     hand-fixed names "outl" and "_outl". Needs libIGSg.dll.
+//     See the xml2_hex_edit_instructions.txt next to this for a list of identified
+//     incompatible skins and hex editing fixes to make them compatible.
+//  8. Diagnostics. The log records pool and name-table high-water marks and writes
+//     "NAME TABLE FULL" when a name cannot be registered. A crash note logs
+//     first-chance access violations (address, module+offset, registers, stack).
 //
-// With Capacity=22, Playable=21 (by hand), CharPool=31 and NameTable=297 the game's code is
-// the original code (apart from the moves).
+// With Roster, CharPool, NameTable and TeamBonus all off the game's code is the original code
+// (apart from the moves).
 //
-// Settings: rosterhack.ini, section [Roster]: Capacity, Playable, CharPool, NameTable.
+// Settings: rosterhack.ini, section [Limits]: Roster, CharPool, NameTable,
+// TeamBonus (each on or off); [Visual]: CelShading.
 // The ini is looked for beside this .asi first (for example the plugins folder), then in
 // the game folder. If it is in neither place, defaults are written beside the .asi.
 // The log (xml2_roster.log) is written in the same folder as the ini.
@@ -93,13 +103,16 @@ static Layout g_lay;
 static Layout MakeLayout(unsigned c)
 {
     Layout L;
+    // both masks are bit arrays (slot >> 5 picks the dword, slot & 31 the bit), so each
+    // needs one dword per 32 slots. One dword was enough up to 32 slots; 33 needs two.
+    unsigned W = (c + 31) / 32;
     L.recEnd = c * 0x44;
-    L.list   = L.recEnd + 4;
+    L.list   = L.recEnd + 4 * W;
     L.tail   = L.list + 4 * (c + 1);   // the original layout has one spare dword here
     L.head   = L.tail + 4;
     L.freec  = L.head + 4;
     L.mask2  = L.freec + 4;
-    L.used   = L.mask2 + 4;
+    L.used   = L.mask2 + 4 * W;
     L.total  = L.used + 4;
     return L;
 }
@@ -824,6 +837,101 @@ static void InstallNameFailLog()
     else Log("name overflow log: write failed");
 }
 
+// ---------------------------------------------------------------------------------------------
+// Team bonus table (tested by the author with 24 teams of 10 heroes).
+// The game keeps its team bonuses (data/team_bonus.xmlb) in one object: a vtable pointer, then 17 records
+// of 0x38 bytes (6 name and description fields, up to 6 hero ids, a spare number, the hero count), then
+// two more numbers: how many teams were read, and the index of the team being read or shown.
+// The loader stops at 17 teams and at 6 heroes per team; whatever is beyond is silently dropped
+// (confirmed by testing for teams).
+// Here the object is rebuilt with 100 records of 23 heroes each (TeamBonus=on). The game's own getter
+// (0x4C2370) is replaced so it hands out the bigger object (the game's own record constructor is run on every
+// record), and the places that depend on the layout are patched:
+//   * the record size (7 places) and the hero-slot stride (1 place),
+//   * the hero count, which sits after the last hero slot (4 places),
+//   * the limit of 6 heroes (1 place) and the limit of 17 teams (1 place),
+//   * the two numbers after the records, which move behind the last record (14 places).
+// TeamBonus=off leaves the game as it was (17 teams of 6 heroes).
+// ---------------------------------------------------------------------------------------------
+static unsigned g_tbN = 17;     // teams
+static unsigned g_tbH = 6;      // heroes per team
+static unsigned g_tbS = 0x38;   // record size in bytes
+static void*    g_tbObj = NULL;
+
+static void* __cdecl TeamBonusGetter()
+{
+    if (g_tbObj) return g_tbObj;
+    unsigned sz = 4 + g_tbN * g_tbS + 8;
+    char* p = (char*)VirtualAlloc(NULL, (sz + 0xFFF) & ~0xFFFu, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);   // zero filled
+    if (!p) { Log("team bonus: out of memory"); return (void*)0x778680; }
+    *(unsigned*)p = 0x68EDF0;            // the object's vtable, as the game sets it
+    typedef void (__stdcall *VecCtor)(void*, unsigned, unsigned, void*, void*);
+    ((VecCtor)0x6722D4)(p + 4, g_tbS, g_tbN, (void*)0x4C1E50, (void*)0x48EF90);   // same call the game's getter makes
+    *(unsigned*)(p + 4 + g_tbN * g_tbS) = 0;                                      // teams read so far
+    *(unsigned*)(p + 8 + g_tbN * g_tbS) = 0xFFFFFFFF;                             // current team index (none)
+    g_tbObj = p;
+    Log("team bonus object built: room for %u teams of %u heroes", g_tbN, g_tbH);
+    return p;
+}
+
+// An on/off setting in rosterhack.ini. A missing setting is written as "on". Only "off" turns it
+// off; anything else (including a number left over from an older version) counts as on.
+static bool IniOn(const char* section, const char* key, const char* iniPath)
+{
+    char v[16] = "";
+    GetPrivateProfileStringA(section, key, "", v, sizeof(v), iniPath);
+    if (v[0] == 0)
+    {
+        WritePrivateProfileStringA(section, key, "on", iniPath);
+        Log("no %s in rosterhack.ini: wrote %s=on", key, key);
+        return true;
+    }
+    return _stricmp(v, "off") != 0;
+}
+
+static void InstallTeamBonus(const char* iniPath)
+{
+    // TeamBonus=on: up to 100 teams of up to 23 heroes. off: the original 17 teams of 6 heroes.
+    bool on = IniOn("Limits", "TeamBonus", iniPath);
+    unsigned n = on ? 100 : 17;
+    unsigned h = on ? 23 : 6;
+    if (!on) { Log("TeamBonus=off: team bonus table left as in the original game"); return; }
+
+    static const unsigned kCountSites[5] = { 0x4C1E8C, 0x4C1EB2, 0x4C1F3B, 0x4C21D2, 0x4C21EB };   // [object + 0x3C0]
+    static const unsigned kIdxSites[9]   = { 0x4C1E82, 0x4C1EFF, 0x4C1F07, 0x4C1FFE, 0x4C203E, 0x4C207E, 0x4C20BE, 0x4C20FE, 0x4C2155 };   // [object + 0x3C4]
+    static const unsigned kSizeSites[7]  = { 0x4C1F4A, 0x4C2004, 0x4C2044, 0x4C2084, 0x4C20C4, 0x4C2104, 0x4C2204 };   // imul reg, reg, 0x38 (the 0x38 byte)
+    static const unsigned kHeroCnt[4]    = { 0x4C1F9C, 0x4C1FC7, 0x4C22C2, 0x4C22DD };               // [record + 0x38]: hero count
+    static const unsigned char getterWant[6] = { 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00 };
+    bool ok = memcmp((void*)0x4C2370, getterWant, 6) == 0 && B8(0x4C21D6) == 0x83 && B8(0x4C21D7) == 0xF8 && B8(0x4C21D8) == 0x11;
+    for (int i = 0; i < 5; i++) if (D32(kCountSites[i]) != 0x3C0) ok = false;
+    for (int i = 0; i < 9; i++) if (D32(kIdxSites[i]) != 0x3C4) ok = false;
+    for (int i = 0; i < 7; i++) if (B8(kSizeSites[i]) != 0x38 || B8(kSizeSites[i] - 2) != 0x6B) ok = false;
+    for (int i = 0; i < 4; i++) if (B8(kHeroCnt[i]) != 0x38) ok = false;
+    if (B8(0x4C22C5) != 0x06 || B8(0x4C22C3) != 0x83) ok = false;      // cmp eax, 6
+    if (B8(0x4C22EA) != 0x0E || B8(0x4C22E8) != 0x6B) ok = false;      // imul ecx, ecx, 0xE (hero slot stride)
+    if (!ok) { Log("team bonus: the game's code is not what we studied, TeamBonus not applied."); return; }
+
+    g_tbN = n; g_tbH = h;
+    g_tbS = 0x38 + 4 * (h - 6);
+    int fails = 0;
+    unsigned newOff = 4 + n * g_tbS, newIdx = newOff + 4;
+    for (int i = 0; i < 5; i++) if (!WriteMem(kCountSites[i], &newOff, 4)) fails++;
+    for (int i = 0; i < 9; i++) if (!WriteMem(kIdxSites[i], &newIdx, 4)) fails++;
+    unsigned char sz8 = (unsigned char)g_tbS;
+    for (int i = 0; i < 7; i++) if (!WriteMem(kSizeSites[i], &sz8, 1)) fails++;
+    unsigned char hc = (unsigned char)(0x38 + 4 * (h - 6));      // the hero count moves back by the extra hero slots
+    for (int i = 0; i < 4; i++) if (!WriteMem(kHeroCnt[i], &hc, 1)) fails++;
+    unsigned char lim = (unsigned char)n, hl = (unsigned char)h, st = (unsigned char)(g_tbS / 4);
+    if (!WriteMem(0x4C21D8, &lim, 1)) fails++;
+    if (!WriteMem(0x4C22C5, &hl, 1)) fails++;
+    if (!WriteMem(0x4C22EA, &st, 1)) fails++;
+    unsigned char jmp[5] = { 0xE9, 0, 0, 0, 0 };
+    unsigned rel = (unsigned)&TeamBonusGetter - (0x4C2370 + 5);
+    memcpy(jmp + 1, &rel, 4);
+    if (!WriteMem(0x4C2370, jmp, 5)) fails++;
+    Log("team bonus table raised to %u teams of %u heroes (was 17 of 6), %d write failure(s). The object is built when the game first asks for it.", n, h, fails);
+}
+
 static DWORD WINAPI CharWatcher(LPVOID)
 {
     unsigned lastUsed = 0xFFFFFFFF, maxUsed = 0, maxNames = 0;
@@ -891,27 +999,11 @@ static bool PatchAbs(unsigned dispAddr, int sib, unsigned absAddr)
 
 static bool InstallCharManager(const char* iniPath)
 {
-    unsigned n = GetPrivateProfileIntA("Roster", "CharPool", 0, iniPath);
-    if (n == 0)
-    {
-        WritePrivateProfileStringA("Roster", "CharPool", "63", iniPath);
-        n = 63;
-        Log("no CharPool in rosterhack.ini: wrote CharPool=63");
-    }
-    if (n < 31) { Log("CharPool %u is below 31, using 31", n); n = 31; }
-    if (n > 64) { Log("CharPool %u is above 64, using 64", n); n = 64; }
+    // CharPool=on: 64 character slots. NameTable=on: 480 names. off: the original 31 and 297.
+    unsigned n  = IniOn("Limits", "CharPool", iniPath) ? 64 : 31;
+    unsigned nm = IniOn("Limits", "NameTable", iniPath) ? 480 : 297;
 
-    unsigned nm = GetPrivateProfileIntA("Roster", "NameTable", 0, iniPath);
-    if (nm == 0)
-    {
-        WritePrivateProfileStringA("Roster", "NameTable", "400", iniPath);
-        nm = 400;
-        Log("no NameTable in rosterhack.ini: wrote NameTable=400");
-    }
-    if (nm < 297) { Log("NameTable %u is below 297, using 297", nm); nm = 297; }
-    if (nm > 480) { Log("NameTable %u is above 480, using 480", nm); nm = 480; }
-
-    if (n == 31 && nm == 297) { Log("CharPool=31 and NameTable=297: character manager left as in the original game"); return true; }
+    if (n == 31 && nm == 297) { Log("CharPool=off and NameTable=off: character manager left as in the original game"); return true; }
 
     if (B8(0x44B35C) != 0xBF)
     {
@@ -1069,6 +1161,126 @@ static bool InstallCharManager(const char* iniPath)
     return fails == 0;
 }
 
+
+// ---------------------------------------------------------------- cel shading off (experimental)
+// [Visual] CelShading=off hides the black cel-shading outline of models. The outline is a separate
+// model node named "<something>_outline". Every node goes through igNode::postFileRead (libIGSg.dll)
+// when a model finishes loading. We hook that, and when the node's name ends in "_outline" we set the
+// node's IS_INVISIBLE flag (0x20 in the flags word at +0x14), so it is simply not drawn.
+// Nothing on disk is changed. CelShading=on (default) installs nothing.
+
+static volatile LONG g_celHits = 0;
+
+// Names of cel-shading shell nodes. Most end in "_outline". A few skins in the stock game name the
+// shell differently (found by scanning every file in the actors folder): "804" (Iceman 0801, 0803 and
+// 7107), the typos "_outine" (0321, 11801, 15384 and extra parts in 4101, 7801 to 7805, 13101) and
+// "_outlline" (2502, 2507), and a bare "outline" (0204).
+static bool IsOutlineName(const char* nm)
+{
+    size_t n = strlen(nm);
+    if (n >= 8 && _stricmp(nm + n - 8, "_outline") == 0) return true;
+    if (n >= 7 && _stricmp(nm + n - 7, "_outine") == 0) return true;
+    if (n >= 9 && _stricmp(nm + n - 9, "_outlline") == 0) return true;
+    if (_stricmp(nm, "outline") == 0) return true;
+    if (strcmp(nm, "804") == 0) return true;
+    // Number-named shells in skins 3901 ("3902"), 3504 and 5001 ("5002"). There is no skin file 3902 or 5002, so these
+    // names can never be a body. (The shells in 2401 "2402" and 7401/7403-7405 "7402" are NOT listed: skins 2402 and
+    // 7402 name their real body the same, and would lose their body. Those skins need renaming instead.)
+    if (strcmp(nm, "3902") == 0 || strcmp(nm, "5002") == 0) return true;
+    // "outl": the shell name used in the hand-fixed skins 2401, 7401 to 7405 and 8601. Their shells were named after
+    // another skin or after the body ("2402", "7402", "8601"), which cannot be matched by name without also hiding
+    // real bodies. The fix renames the shell to this four-letter name, same length so the file layout is unchanged.
+    if (strcmp(nm, "outl") == 0) return true;
+    // "_outl": same idea for five-digit skin numbers (15412), where the shell was named after the body ("15412").
+    if (strcmp(nm, "_outl") == 0) return true;
+    return false;
+}
+
+static void __cdecl CelNode(void* node)
+{
+    __try
+    {
+        const char* nm = *(const char**)((unsigned char*)node + 8);
+        if (!nm) return;
+        if (IsOutlineName(nm))
+        {
+            *(unsigned*)((unsigned char*)node + 0x14) |= 0x20;
+            LONG k = InterlockedIncrement(&g_celHits);
+            if (k <= 60) Log("cel shading off: hid outline node '%s' (#%ld)", nm, k);
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+static DWORD WINAPI CelWatcher(LPVOID)
+{
+    HMODULE m = NULL;
+    for (int i = 0; i < 6000 && !(m = GetModuleHandleA("libIGSg.dll")); i++) Sleep(10);
+    if (!m) { Log("cel shading off: libIGSg.dll never loaded, nothing done"); return 0; }
+    unsigned base = (unsigned)m;
+    unsigned at = base + 0x56D60;                       // igNode::postFileRead
+    // push esi / mov esi,ecx / call dword ptr [abs]  (9 bytes), then mov eax,[esi]
+    static const unsigned char head[5] = { 0x56, 0x8B, 0xF1, 0xFF, 0x15 };
+    static const unsigned char tail[2] = { 0x8B, 0x06 };
+    if (memcmp((const void*)at, head, 5) != 0 || memcmp((const void*)(at + 9), tail, 2) != 0)
+    {
+        Log("cel shading off: libIGSg.dll code does not match (base %08X), not installed", base);
+        return 0;
+    }
+    unsigned char* cave = (unsigned char*)VirtualAlloc(NULL, 0x40, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!cave) { Log("cel shading off: no memory for the hook"); return 0; }
+    unsigned char* p = cave;
+    *p++ = 0x60;                                        // pushad
+    *p++ = 0x51;                                        // push ecx
+    *p++ = 0xE8; { int r = (int)((unsigned)&CelNode - ((unsigned)p + 4)); memcpy(p, &r, 4); p += 4; }
+    *p++ = 0x83; *p++ = 0xC4; *p++ = 0x04;              // add esp,4
+    *p++ = 0x61;                                        // popad
+    memcpy(p, (const void*)at, 9); p += 9;              // the original 9 bytes, as relocated in memory
+    *p++ = 0xE9; { int r = (int)((at + 9) - ((unsigned)p + 4)); memcpy(p, &r, 4); p += 4; }
+    FlushInstructionCache(GetCurrentProcess(), cave, 0x40);
+    unsigned char j[9] = { 0xE9, 0, 0, 0, 0, 0x90, 0x90, 0x90, 0x90 };
+    int rel = (int)((unsigned)cave - (at + 5));
+    memcpy(j + 1, &rel, 4);
+    if (WriteMem(at, j, 9)) Log("cel shading off: hook installed in libIGSg.dll (base %08X)", base);
+    else Log("cel shading off: write failed");
+    return 0;
+}
+
+
+// ---------------------------------------------------------------- crash note
+// If the game hits an access violation, write where it happened into the log, so a crash report
+// (for example under Mod Organizer 2) says which module and address failed. Logs the first few only.
+
+static volatile LONG g_avN = 0;
+
+static LONG CALLBACK CrashNote(EXCEPTION_POINTERS* ep)
+{
+    if (!ep || !ep->ExceptionRecord || ep->ExceptionRecord->ExceptionCode != 0xC0000005) return EXCEPTION_CONTINUE_SEARCH;
+    if (InterlockedIncrement(&g_avN) > 8) return EXCEPTION_CONTINUE_SEARCH;
+    const EXCEPTION_RECORD* r = ep->ExceptionRecord;
+    const CONTEXT* c = ep->ContextRecord;
+    char mod[MAX_PATH] = "?";
+    HMODULE hm = NULL;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)r->ExceptionAddress, &hm) && hm)
+    {
+        GetModuleFileNameA(hm, mod, MAX_PATH);
+        char* sl = strrchr(mod, '\\'); if (sl) memmove(mod, sl + 1, strlen(sl));
+    }
+    Log("first-chance access violation #%ld (the game may handle this): at %08X (%s+%X), %s address %08X", (long)g_avN, (unsigned)r->ExceptionAddress, mod,
+        hm ? (unsigned)r->ExceptionAddress - (unsigned)hm : 0,
+        (r->NumberParameters > 0 && r->ExceptionInformation[0] == 1) ? "writing" : "reading",
+        r->NumberParameters > 1 ? (unsigned)r->ExceptionInformation[1] : 0);
+    Log("  eax %08X ebx %08X ecx %08X edx %08X esi %08X edi %08X ebp %08X esp %08X",
+        c->Eax, c->Ebx, c->Ecx, c->Edx, c->Esi, c->Edi, c->Ebp, c->Esp);
+    __try
+    {
+        const unsigned* st = (const unsigned*)c->Esp;
+        Log("  stack: %08X %08X %08X %08X %08X %08X %08X %08X", st[0], st[1], st[2], st[3], st[4], st[5], st[6], st[7]);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 extern "C" __declspec(dllexport) void InitializeASI()
 {
     char exe[MAX_PATH], asiDir[MAX_PATH], logPath[MAX_PATH], iniPath[MAX_PATH];
@@ -1099,8 +1311,8 @@ extern "C" __declspec(dllexport) void InitializeASI()
     strcpy_s(iniPath, dir); strcat_s(iniPath, "rosterhack.ini");
 
     fopen_s(&g_log, logPath, "w");
-    Log("---- XML2 Roster Hack - Beta v0.01 ----");
-    Log("settings folder: %s", dir);
+    AddVectoredExceptionHandler(1, CrashNote);
+    Log("---- XML2 32 Roster Hack Beta v0.02 ----");
 
     if ((unsigned long)GetModuleHandleA(NULL) != 0x400000)
     {
@@ -1109,40 +1321,16 @@ extern "C" __declspec(dllexport) void InitializeASI()
     }
 
     // ---- settings from the ini (written with defaults when missing) ----
-    unsigned cap = GetPrivateProfileIntA("Roster", "Capacity", 0, iniPath);
-    if (cap == 0)
-    {
-        WritePrivateProfileStringA("Roster", "Capacity", "32", iniPath);
-        cap = 32;
-        Log("no Capacity in rosterhack.ini: wrote Capacity=32");
-    }
-    if (cap < 22) { Log("Capacity %u is below 22, using 22", cap); cap = 22; }
-    if (cap > 32) { Log("Capacity %u is above 32, using 32", cap); cap = 32; }
+    // Roster=on: up to 32 heroes plus the default entry (33 hero records). off: the original
+    // limit of 21 heroes plus the default entry (22 hero records).
+    unsigned cap = IniOn("Limits", "Roster", iniPath) ? 33 : 22;
     g_cap = cap;
     g_lay = MakeLayout(cap);
 
-    // Playable: "auto" (or 0, or missing) follows the real number of herostat entries.
-    // A number keeps the old behaviour (the loop runs exactly that many times).
-    char playTxt[32] = "";
-    GetPrivateProfileStringA("Roster", "Playable", "", playTxt, sizeof(playTxt), iniPath);
-    unsigned play = 0;
-    if (playTxt[0] == 0)
-    {
-        WritePrivateProfileStringA("Roster", "Playable", "auto", iniPath);
-        Log("no Playable in rosterhack.ini: wrote Playable=auto");
-        g_playAuto = true;
-    }
-    else if (_stricmp(playTxt, "auto") == 0 || atoi(playTxt) == 0)
-        g_playAuto = true;
-    else
-    {
-        g_playAuto = false;
-        play = (unsigned)atoi(playTxt);
-        if (play < 21) { Log("Playable %u is below 21, using 21", play); play = 21; }
-        if (play > g_cap - 1) { Log("Playable %u does not fit in Capacity %u (one slot is the default entry), using %u", play, g_cap, g_cap - 1); play = g_cap - 1; }
-        Log("Playable is set by hand to %u. Set Playable=auto to follow your herostat automatically.", play);
-    }
-    g_playable = play ? play : 21;
+    // Playable always follows the real number of herostat entries, so nothing has to be
+    // changed when heroes are added.
+    g_playAuto = true;
+    g_playable = 21;
 
     Log("capacity %u, playable %s. layout: records 0..%03X, mask1 %03X, list %03X, tail %03X, head %03X, free %03X, mask2 %03X, used %03X, total %03X",
         g_cap, g_playAuto ? "auto" : "set by hand", g_lay.recEnd, g_lay.recEnd, g_lay.list, g_lay.tail, g_lay.head, g_lay.freec, g_lay.mask2, g_lay.used, g_lay.total);
@@ -1300,7 +1488,20 @@ extern "C" __declspec(dllexport) void InitializeASI()
     Log("patched %u sites, %d write failure(s).", nSites + 7, fails);
 
     InstallPortraitFix();
+    {
+        char cel[16] = "";
+        GetPrivateProfileStringA("Visual", "CelShading", "", cel, sizeof(cel), iniPath);
+        if (cel[0] == 0) { WritePrivateProfileStringA("Visual", "CelShading", "on", iniPath); strcpy_s(cel, "on"); }
+        if (_stricmp(cel, "off") == 0)
+        {
+            HANDLE ch = CreateThread(NULL, 0, CelWatcher, NULL, 0, NULL);
+            if (ch) CloseHandle(ch);
+            Log("CelShading=off: waiting for libIGSg.dll to hide outline nodes");
+        }
+        else Log("CelShading=on (original look)");
+    }
     InstallCharManager(iniPath);
+    InstallTeamBonus(iniPath);
     InstallNameFailLog();
 
     HANDLE h = CreateThread(NULL, 0, Watcher, NULL, 0, NULL);

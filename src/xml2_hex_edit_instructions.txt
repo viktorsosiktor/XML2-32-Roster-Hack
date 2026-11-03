@@ -1,0 +1,99 @@
+XML2 32 ROSTER HACK BETA v0.02 - HEX EDIT INSTRUCTIONS FOR CelShading=off
+=========================================================================
+
+WHO NEEDS THIS
+--------------
+Only people who set CelShading=off in rosterhack.ini. Skip it if you leave
+CelShading=on (the default). Nothing else in the roster hack needs it.
+
+The plugin hides the black outline on a model by the NAME of the outline part.
+A few skins call that part something the plugin does not recognize due to
+conflicting names, so their outline stays visible. The fix is to rename that
+one part to a name the plugin does know. The new name is the same length as
+the old one, so nothing else in the file moves.
+
+SKINS KNOWN TO NEED THIS
+------------------------
+These are skin files (.igb) in the "actors" folder of the game:
+
+  Skin file   Old outline name   New outline name   Method
+  2401.igb    2402               outl               A (search and replace)
+  7401.igb    7402               outl               A
+  7403.igb    7402               outl               A
+  7404.igb    7402               outl               A
+  7405.igb    7402               outl               A
+  7402.igb    7402               outl               B (by position)
+  8601.igb    8601               outl               B (by position)
+  15412.igb   15412              _outl              B (by position)
+
+Default hero: 2401 (Scarlet Witch).
+Default NPC: 7401, 7402, 7403, 7404, 7405 and 8601.
+Mod hero: 15412 (Psylocke). It is not a default game file, and its new outline
+part name is _outl (5 characters, so it fits the 5 characters of 15412).
+
+No other default or modded skins are known to need an edit. The author
+considered only the skins provided by the default game and the three Marvel
+Mods XML2 character mod packages (AXE, BHE and MUE). If you find another skin
+whose outline is still visible with CelShading=off, please report it (see
+Reporting a problem in README.txt).
+
+BEFORE YOU START
+----------------
+  - Make a BACKUP COPY of the skin file first. Keep the original.
+  - Use any hex editor that can search for text and overwrite bytes. HxD and
+    XVI32 are free ones for Windows. The steps below use HxD's wording, so the
+    menu names may differ slightly in another editor.
+  - Edit in OVERWRITE mode, not insert mode. The file size must not change.
+  - Type the new name as TEXT (letters), not as hex numbers.
+  - Do not change anything else in the file.
+  - If you use a mod manager, edit the copy of the skin that the game actually
+    loads, and keep your mod's own files in mind. A mod that replaces the skin
+    brings its own file, which may need the edit too.
+
+METHOD A - SEARCH AND REPLACE (2401, 7401, 7403, 7404, 7405)
+------------------------------------------------------------
+  1. Open the skin file in the hex editor.
+  2. Open Search > Replace.
+  3. Set the data type to "Text-string".
+  4. Search for the old name from the table (for example 2402 in 2401.igb).
+     Replace with:  outl
+  5. Choose "Replace all".
+  6. The editor should report exactly 2 replacements. If it says anything
+     else, close the file WITHOUT saving and restore your backup.
+  7. Save the file.
+
+METHOD B - BY POSITION (7402, 8601, 15412)
+------------------------------------------
+These files also contain other parts with the same name as the old outline
+name, so a search and replace would damage them. Change only the two spots
+below. The positions are counted from the start of the file, for the
+unmodified file of the exact size shown.
+
+  Skin file   File size       Spot 1             Spot 2           Length
+  7402.igb    168,345 bytes   9385  (hex 24A9)   9465  (hex 24F9)   4
+  8601.igb    204,741 bytes   10457 (hex 28D9)   10537 (hex 2929)   4
+  15412.igb   184,005 bytes   10177 (hex 27C1)   10257 (hex 2811)   5
+
+  1. Open the skin file in the hex editor.
+  2. Use Search > Go to (Ctrl+G) and enter the first position.
+  3. The bytes at that spot must read the old name as text (7402 in
+     7402.igb, 8601 in 8601.igb, 15412 in 15412.igb). If they do not, or the
+     file size is different, STOP: your file is not the same as the one these
+     positions were made for. Close the file without saving.
+  4. Overwrite those characters with:  outl  (7402.igb and 8601.igb), or with
+     _outl  (15412.igb, 5 characters including the underscore).
+  5. Repeat for the second position.
+  6. Save the file.
+
+HOW TO CHECK IT WORKED
+----------------------
+  - The file size is exactly the same as your backup.
+  - Start the game with CelShading=off. The black outline on that skin should
+    be gone. xml2_roster.log lists the parts it hid by name; outl should be one
+    of them. This may be difficult to check for NPC skins, as they only appear
+    during certain missions.
+  - If the skin looks wrong or the game misbehaves, put the backup back and
+    set CelShading=on.
+
+The edited skin files themselves are not provided here. They belong to the
+game and to the people who made them, so you make the change on your own copy.

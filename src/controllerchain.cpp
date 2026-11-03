@@ -1,4 +1,4 @@
-// XML2 Roster Hack companion: controller chain (Beta v0.01).
+// XML2 32 Roster Hack companion: controller chain (Beta v0.02).
 //
 // The game gets DirectInput through libIGDisplay.dll, which asks for one function:
 // DirectInputCreateEx from "DINPUT.dll". The plugin loader now owns the name dinput.dll,
@@ -34,6 +34,29 @@ static void Log(const char* fmt, ...)
     fflush(g_log);
 }
 
+static volatile LONG g_avN = 0;
+
+// Write where an access violation happened into the log (first few only), so a crash report says
+// which module failed. Passes every exception on untouched.
+static LONG CALLBACK CrashNote(EXCEPTION_POINTERS* ep)
+{
+    if (!ep || !ep->ExceptionRecord || ep->ExceptionRecord->ExceptionCode != 0xC0000005) return EXCEPTION_CONTINUE_SEARCH;
+    if (InterlockedIncrement(&g_avN) > 8) return EXCEPTION_CONTINUE_SEARCH;
+    const EXCEPTION_RECORD* r = ep->ExceptionRecord;
+    char mod[MAX_PATH] = "?";
+    HMODULE hm = NULL;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)r->ExceptionAddress, &hm) && hm)
+    {
+        GetModuleFileNameA(hm, mod, MAX_PATH);
+        char* sl = strrchr(mod, '\\'); if (sl) memmove(mod, sl + 1, strlen(sl));
+    }
+    Log("first-chance access violation #%ld (the game may handle this): at %08X (%s+%X), %s address %08X", (long)g_avN, (unsigned)r->ExceptionAddress, mod,
+        hm ? (unsigned)r->ExceptionAddress - (unsigned)hm : 0,
+        (r->NumberParameters > 0 && r->ExceptionInformation[0] == 1) ? "writing" : "reading",
+        r->NumberParameters > 1 ? (unsigned)r->ExceptionInformation[1] : 0);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 extern "C" __declspec(dllexport) void InitializeASI()
 {
     char dir[MAX_PATH];
@@ -46,6 +69,7 @@ extern "C" __declspec(dllexport) void InitializeASI()
     strcat_s(logPath, "xml2_chain.log");
     fopen_s(&g_log, logPath, "w");
     Log("---- controller chain ----");
+    AddVectoredExceptionHandler(1, CrashNote);
 
     HMODULE disp = GetModuleHandleA("libIGDisplay.dll");
     if (!disp) { Log("libIGDisplay.dll is not loaded yet. Nothing done."); return; }
