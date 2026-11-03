@@ -1,0 +1,63 @@
+name: Bug report
+description: The game crashed, won't start, or something looks or works wrong with the roster hack.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing! Please fill in what you can. Missing details are fine, just say "not sure".
+        **Privacy:** Never post anything personal.
+  - type: input
+    id: version
+    attributes:
+      label: Hack version
+      description: The first line of xml2_roster.log, for example "XML2 32 Roster Hack Beta v0.02".
+  - type: dropdown
+    id: how
+    attributes:
+      label: How do you run the game?
+      options:
+        - Direct method (files added to the game folder, no mod manager)
+        - MO2 or another mod manager
+        - Other / not sure
+  - type: textarea
+    id: manager
+    attributes:
+      label: Setup details
+      description: "Provide details regarding how you set up the game files and/or mod manager to run your game."
+  - type: textarea
+    id: tools
+    attributes:
+      label: Game file details
+      description: "Provide details regarding how your game files were created: the herostat, character heads package, unlock scripts and team bonuses, and which tools you used to decompile, compile or generate them, if any."
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Does the game fail to start, crash, or look wrong? What did you expect?
+  - type: textarea
+    id: where
+    attributes:
+      label: Where were you and what were you doing?
+      description: Which screen or mission, your full team of 4 heroes, and what you did just before it happened. Does it happen every time?
+  - type: textarea
+    id: roster
+    attributes:
+      label: Your roster
+      description: Which heroes are added or changed, and roughly how many heroes in total. Did it work before you added something? What?
+  - type: textarea
+    id: crash
+    attributes:
+      label: Crash details (only if the game crashed)
+      description: "Windows Event Viewer > Windows Logs > Application > newest \"Application Error\" for XMen2.exe. Paste Faulting module name, Exception code and Fault offset."
+  - type: textarea
+    id: files
+    attributes:
+      label: Logs
+      description: "Drag in xml2_roster.log (next to rosterhack.ini, usually the plugins folder), xml2_chain.log (in the game folder, next to XMen2.exe) and rosterhack.ini (or a screenshot of its settings). Save and close all open documents first, including rosterhack.ini in Notepad, because Notepad can show settings that the game did not actually load. If there is no log at all, say so."
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: "Other mods, the loader files you have (dinput.dll, global.ini), screenshots."

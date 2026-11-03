@@ -1,0 +1,35 @@
+name: Limit or glitch report
+description: A hero, power, talent, bolt-on, team bonus, skin outline or similar misbehaves with a bigger roster.
+title: "[Limit] "
+labels: ["limit"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Hack version
+      description: First line of xml2_roster.log.
+  - type: textarea
+    id: what
+    attributes:
+      label: What is wrong?
+      description: For example "powers missing for hero X", "wrong skin", "team bonus not showing".
+  - type: textarea
+    id: compare
+    attributes:
+      label: Does it also happen with the original 21 heroes?
+      description: Try the same hero with the hack removed (or with a 21-hero herostat). Say what you saw.
+  - type: textarea
+    id: setup
+    attributes:
+      label: Hero and files
+      description: Which hero or item, the team you were using, and the mission. Mention anything unusual in that hero's data (many talents, many bolt-ons, many fightmoves).
+  - type: textarea
+    id: cel
+    attributes:
+      label: Skin outline problem (only if CelShading=off)
+      description: "Which character is it, a hero or an NPC, and which outfit or skin? If you know the skin number (the number in the model's .igb file name in the actors folder), include it; if not, a description or screenshot is fine. Is the black outline still showing, or is part of the model missing? Does it happen in the menus, in missions, or in cutscenes? If it is an NPC, which mission does the skin appear in?"
+  - type: textarea
+    id: files
+    attributes:
+      label: Logs
+      description: "Attach xml2_roster.log and rosterhack.ini (or a screenshot of its settings). Save and close all open documents first, including rosterhack.ini in Notepad, because Notepad can show settings that the game did not actually load. A save file or the hero's data files can help us reproduce it; only share them if you are happy to."
